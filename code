@@ -1,0 +1,332 @@
+setwd("D:/TU/AppliedStatistics/concrete")
+Sys.setenv(lang = "EN")
+set.seed(20)
+
+library(gridExtra)
+library(tidyverse)
+library(car)
+library(glmnet)
+library(caret)
+library(pls)
+library(corrplot)
+library(Hmisc)
+library(factoextra)
+library(GGally)
+library(lmtest)
+library(sandwich)
+
+
+concrete <- read.csv("Concrete_Data.csv")
+
+colnames(concrete)<- c("Cement","Blast_Furnace_Slag","Fly_Ash","Water","Superplasticizer",
+                       "Coarse_Aggregate","Fine_Aggregate","Age","Compressive_Strength")
+
+
+
+str(concrete)
+head(concrete)
+summary_concrete = summary(concrete)
+
+######## summary slide 4
+png("summary.png", height = 100*nrow(summary_concrete), width = 200*ncol(summary_concrete))
+grid.table(summary_concrete)
+dev.off()
+#BOXPLOT
+scale_data = scale.default(concrete)
+
+######## Boxplots slide 4
+boxplot_unscaled = boxplot(concrete,xaxt="n",xlab="",cex.axis = 0.8, col ="white")
+tick <- seq_along(boxplot_unscaled$names)
+axis(1, at = tick, labels = FALSE)
+text(tick, par("usr")[3] - 175, boxplot_unscaled$names, srt = 32, xpd = TRUE)
+
+boxplot_scaled = boxplot(scale_data,xaxt="n",xlab="",cex.axis = 0.8, col = "white")
+tick_2 <- seq_along(boxplot_scaled$names)
+axis(1, at = tick_2, labels = FALSE)
+text(tick_2, par("usr")[3] - 1.25, boxplot_scaled$names, srt = 32, xpd = TRUE)
+
+
+######### Scatterplots slide 5
+
+A <- cor(concrete)
+A <- as.data.frame(A)
+A["strength", "fine"]
+
+png(filename = "slide2_scatterplots.png", width = 2000, height = 1000, res = 120)
+par(mfrow = c(2, 4))
+for (i in c("Cement", "Blast_Furnace_Slag", "Fly_Ash", "Water", "Superplasticizer", "Coarse_Aggregate", "Fine_Aggregate", "Age")) {
+  plot(concrete[,i], concrete[,"Compressive_Strength"],
+       main = i,
+       xlab = paste("Correlation: ",round(A["Compressive_Strength",i], 2)), 
+       ylab = "",
+       pch = 19, cex = 1.5, cex.lab = 2, cex.axis = 2, cex.main = 2)
+}
+dev.off()
+
+
+
+######### 4 plot grid slide 6
+
+S_Water = interaction = ggplot(concrete, aes(x = Water, y = Superplasticizer)) +
+  geom_point()+
+  labs(x = "Water",
+       y = "Superplasticizer")+
+  theme_bw()+
+  theme(legend.position = "none")
+
+interaction = ggplot(concrete, aes(x = Water, y = Superplasticizer, color = Compressive_Strength)) +
+  geom_point()+
+  labs(x = "Water",
+       y = "Superplasticizer")+
+  theme_bw()+
+  theme(legend.position = "none")
+
+interaction_2 = ggplot(concrete, aes(x = Water*Superplasticizer, y  = Compressive_Strength)) +
+  geom_point()+
+  labs(x = "Water*Superplasticizer",
+       y = "Compressive Strength")+
+  theme_bw()+
+  theme(legend.position = "none")
+interaction_2
+
+#TRANSFORMATION
+no_log = ggplot(concrete, aes(x = Age, y = `Compressive_Strength`))+
+  geom_point()+
+  theme_bw()
+with_log = ggplot(concrete, aes(x = log(Age), y = `Compressive_Strength`))+
+  geom_point()+
+  theme_bw()
+
+plot1 <- S_Water
+plot2 <- interaction
+plot3 <- no_log
+plot4 <- with_log
+grid.arrange(plot1, plot2, plot3, plot4, ncol=2, top = "Implementation of Interaction Term and Transformation")
+
+
+############ Scatterplot intercept lines slide 7
+
+model_no_intercept <- lm(Compressive_Strength ~ 0 + Cement,
+                         data = concrete)
+model_with_intercept <- lm(Compressive_Strength ~ Cement,
+                           data = concrete)
+
+png("Intercept.png", width = 480, height = 480)
+plot.new()
+plot.window(xlim = c(0,600), ylim = c(0,100))
+axis(side = 1, pos = c(0,0))
+axis(side = 2, pos = c(0,0))
+points(concrete$Cement, concrete$Compressive_Strength, pch = 19)
+abline(model_with_intercept, col = "red3", lwd = 2)
+abline(model_no_intercept, col = "green3", lwd = 2)
+ylab("Compressive Strength")
+title(ylab = "Compressive Strength", xlab = "Cement")
+dev.off()
+
+############# regression slide 7
+
+model_1 <- lm(Compressive_Strength ~ 0 + Cement + Blast_Furnace_Slag + Fly_Ash
+              + Water + Superplasticizer + Coarse_Aggregate + Fine_Aggregate 
+              + log(Age)+ Water*Superplasticizer,
+              data = concrete)
+summary(model_1)
+
+############# slide 8 and post-regression tests
+
+ncvTest(model_1)  #p value is very small, indicating that this model does have a problem of unequal variances.
+#and also according to Scale-Location Plot (Square Root of Residuals) tells us homoscedasticity 
+#Ideally, points should be evenly spread. but from out full model, it is extremely uneven which 
+#means our model does meet the  heteroscedasticity assumption of linear regression model
+
+
+# Multicollinearity check/ check the variables are correlated or not
+vif(model_1)  
+#except for superplasticizer and age, the rest of variables are correlated to each other.
+
+
+#method 2:drop variables
+drop1(model_1,x=concrete[,c("Cement","Blast_Furnace_Slag","Fly_Ash","Water",
+                            "Superplasticizer","Coarse_Aggregate","Fine_Aggregate","Age")],
+      test = "F", trace= TRUE)
+
+
+############# slide 9 aggregate boxplot
+
+png("boxplot.png", width = 600, height = 300)
+boxplot(apply(concrete[,c("Cement","Blast_Furnace_Slag","Fly_Ash","Water",
+                          "Superplasticizer","Coarse_Aggregate","Fine_Aggregate")],
+              1, sum), horizontal = TRUE)
+title("sum of physical ingredients")        
+dev.off()
+
+############ slide 10 ridge regression 
+
+# Define response variable and predictor matrix
+y <- concrete$Compressive_Strength
+x <- data.matrix(concrete[, c("Cement","Blast_Furnace_Slag","Fly_Ash","Water",
+                              "Superplasticizer","Coarse_Aggregate","Fine_Aggregate","Age")])
+# Standardize predictors
+x_scaled <- scale(x)
+y_scaled <- scale(y)
+
+# Split data into training and testing sets
+set.seed(2024)
+trainIndex <- createDataPartition(y, p = 0.8, list = FALSE)
+x_train <- x_scaled[trainIndex,]
+y_train <- y[trainIndex]
+x_test <- x_scaled[-trainIndex,]
+y_test <- y[-trainIndex]
+
+# Fit ridge regression model with cross-validation
+cv_ridge <- cv.glmnet(x_train, y_train, alpha = 0, nfolds = 10) 
+cv_ridge
+#produce plot of test MSE by lambda value
+plot(cv_ridge)
+
+# Find optimal lambda value that minimizes test MSE
+best_lambda <- cv_ridge$lambda.1se
+best_lambda
+
+# Fit the best ridge regression model
+best_ridge_reg_model <- glmnet(x_train, y_train, alpha = 0, lambda = best_lambda)
+coef(best_ridge_reg_model)
+best_ridge_reg_model
+
+# Predict on test set
+y_pred_ridge <- predict(best_ridge_reg_model, s = best_lambda, newx = x_test)
+y_pred_ridge
+
+# Calculate R-squared for ridge regression model
+sst_ridge <- sum((y_test - mean(y_test))^2)
+sse_ridge <- sum((y_pred_ridge - y_test)^2)
+rsq_ridge <- 1 - sse_ridge/sst_ridge
+print(rsq_ridge)
+
+############## slide 11 K-fold cv with comparison
+
+# setting up k-folds
+n <- 1030 / 10
+k_folds <- matrix(NA, ncol = 10, nrow = n)
+row_ids <- 1:nrow(concrete)
+
+for (i in 1:10){
+  k_folds[,i] <- sample(x = row_ids[which(!row_ids %in% k_folds)],
+                        size = n)
+}
+# used for all models except model_0
+concrete_scaled <- concrete
+concrete_scaled$Age <- log(concrete_scaled$Age)
+concrete_scaled <- scale(concrete)
+
+# used for model_0
+concrete_scaled2 <- concrete
+concrete_scaled2 <- scale(concrete)
+
+mse <- data.frame()
+m_1_coeffs <- data.frame()
+concrete_scaled <- as.data.frame(concrete_scaled)
+concrete_scaled2 <- as.data.frame(concrete_scaled2)
+
+for (i in 1:10){
+  model_0 <- lm(Compressive_Strength ~ .,
+                data = concrete_scaled2[k_folds[,-i],])
+  
+  model_1 <- lm(Compressive_Strength ~ 0 + Cement + Blast_Furnace_Slag + Fly_Ash
+                + Water + Superplasticizer + Coarse_Aggregate + Fine_Aggregate 
+                + Age + Water*Superplasticizer,
+                data = concrete_scaled[k_folds[,-i],])
+  
+  model_pcr <- pcr(Compressive_Strength~., 
+                   data = concrete_scaled[k_folds[,-i],], scale = TRUE, 
+                   validation = "CV")
+  
+  ###### ridge #########
+  cv_model <- cv.glmnet(as.matrix(concrete_scaled[k_folds[,-i],-9]), 
+                        concrete_scaled[k_folds[,-i],"Compressive_Strength"], 
+                        alpha = 0, nfolds = 10) 
+  #produce plot of test MSE by lambda value
+  m_1_coeffs <- rbind(m_1_coeffs, model_1$coefficients)
+  
+  # Find optimal lambda value that minimizes test MSE
+  best_lambda <- cv_model$lambda.min
+  
+  # Fit the best ridge regression model
+  best_ridge_reg_model <- glmnet(concrete_scaled[k_folds[,-i],-9], 
+                                 concrete_scaled[k_folds[,-i],"Compressive_Strength"], 
+                                 alpha = 0, lambda = best_lambda)
+  
+  
+  
+  est_str_m1 <- predict(model_1, concrete_scaled[k_folds[,i],-9])
+  est_str_pcr <- predict(model_pcr, concrete_scaled[k_folds[,i],-9])
+  est_str_m0 <- predict(model_0, concrete_scaled2[k_folds[,i],-9])
+  
+  
+  est_str_ridge <- predict(best_ridge_reg_model, s = best_lambda, 
+                           newx =  as.matrix(concrete_scaled[k_folds[,i],-9]))
+  
+  
+  true_str <- concrete_scaled[k_folds[,i],"Compressive_Strength"]
+  mse[i,1] <- sum((true_str - est_str_m1)^2) / n
+  mse[i,2] <- sum((true_str - est_str_pcr[,,1])^2) / n
+  
+  # these are rescaled, wrong maybe??????
+  # use all regressions on the same rescaled data
+  mse[i,3] <- sum((true_str - est_str_ridge)^2) / n
+  mse[i,4] <- sum((true_str - est_str_m0)^2) / n
+  
+}
+
+colnames(mse) <- c("OLS", "PCR", "Ridge Regression", "Blank OLS")
+
+png("mse.png", height = 100*nrow(mse), width = 200*ncol(mse))
+grid.table(round(mse, 4))
+dev.off()
+
+############# Appendix
+
+#CORRELATIONMATRIX
+cor_data = cor(concrete)
+corrplot(cor_data,method = "color")
+corrplot(cor_data, method = "number")
+
+#SPEARMAN
+v = varclus(~ Cement + Blast_Furnace_Slag + Fly_Ash + Water + Superplasticizer + Coarse_Aggregate + Fine_Aggregate + Age +
+              Compressive_Strength, data = concrete)
+plot(v)
+
+#RATIOS
+ggplot(concrete, aes(x = Water/Cement, y = Compressive_Strength))+
+  geom_point()+
+  theme_bw()+
+  labs(title = "Abrams Law",
+       y = "Compressive Strength")
+
+#PCA
+ingredients = filter(concrete[,1:7])
+ingredients_age = filter(concrete[,1:8])
+data = concrete
+
+concrete.pca = prcomp(ingredients, scale = TRUE, center = TRUE)
+print(concrete.pca)
+summary(concrete.pca)
+names(concrete.pca)
+head(concrete.pca$x, 10)
+fviz_eig(concrete.pca, addlabels = TRUE, main = "PCA of the Ingredients")
+fviz_pca_var(concrete.pca, col.var = "black") #black & white plot
+fviz_pca_var(concrete.pca, col.var = "cos2", #coloured plot
+             gradient.cols = c("black", "blue", "red"),
+             repel = TRUE)
+fviz_cos2(concrete.pca, choice = "var", axes = 1:2)
+
+concrete.pca = prcomp(ingredients_age, scale = TRUE, center = TRUE)
+print(concrete.pca)
+summary(concrete.pca)
+names(concrete.pca)
+head(concrete.pca$x, 10)
+fviz_eig(concrete.pca, addlabels = TRUE, main = "PCA of the Ingredients and Age")
+fviz_pca_var(concrete.pca, col.var = "black") #black & white plot
+fviz_pca_var(concrete.pca, col.var = "cos2", #coloured plot
+             gradient.cols = c("black", "blue", "red"),
+             repel = TRUE)
+fviz_cos2(concrete.pca, choice = "var", axes = 1:2)
